@@ -20,9 +20,9 @@ package main
 
 import "github.com/bocheninc/L0/cmd/lcnd/commands"
 
-//import "runtime"
+import "runtime"
 
 func main() {
-	//runtime.GOMAXPROCS(runtime.NumCPU())
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	commands.Execute()
 }
