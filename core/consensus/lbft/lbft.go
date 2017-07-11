@@ -362,6 +362,7 @@ func (lbft *Lbft) handleTransaction() {
 			log.Debugf("Replica %s view change period", lbft.options.ID)
 			lbft.sendViewChange(nil)
 		case <-lbft.nullRequestTimer.C:
+			log.Debugf("Replica %s channel size (%d %d %d %d %d)", lbft.options.ID, len(lbft.recvConsensusMsgChan), len(lbft.broadcastChan), len(lbft.committedTxsChan), len(lbft.committedRequestBatchChan), len(lbft.lbftCoreCommittedChan))
 			lbft.nullRequestHandler()
 		case <-lbft.emptyBlockTimer.C:
 			if lbft.isPrimary() {
@@ -371,7 +372,6 @@ func (lbft *Lbft) handleTransaction() {
 			lbft.emptyBlockTimerStart = false
 			log.Debugf("Replica %s stop empty block", lbft.options.ID)
 		case <-lbft.blockTimer.C:
-			log.Debugf("Replica %s channel size (%d %d %d %d %d)", lbft.options.ID, len(lbft.recvConsensusMsgChan), len(lbft.broadcastChan), len(lbft.committedTxsChan), len(lbft.committedRequestBatchChan), len(lbft.lbftCoreCommittedChan))
 			lbft.maybeSendViewChange()
 			lbft.submitRequestBatches()
 			lbft.resetBlockTimer()
