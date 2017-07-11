@@ -610,6 +610,7 @@ func (lbft *Lbft) handleConsensusMsg() {
 					lbft.recvViewChange(vc)
 				}
 			case MESSAGENULLREQUEST:
+				log.Debugf("Replica %s channel size (%d %d %d %d %d)", lbft.options.ID, len(lbft.recvConsensusMsgChan), len(lbft.broadcastChan), len(lbft.committedTxsChan), len(lbft.committedRequestBatchChan), len(lbft.lbftCoreCommittedChan))
 				if np := msg.GetNullRequest(); np != nil {
 					if np.Chain != lbft.options.Chain {
 						log.Errorf("Replica %s received null request from %s : ignore diff chain (%s==%s) ", lbft.options.ID, np.ReplicaID, np.Chain, lbft.options.Chain)
@@ -654,7 +655,6 @@ func (lbft *Lbft) nullRequestHandler() {
 		log.Debugf("Replica %s null request timer expired, sending view change", lbft.options.ID)
 		lbft.sendViewChange(nil)
 	}
-	log.Debugf("Replica %s channel size (%d %d %d %d %d)", lbft.options.ID, len(lbft.recvConsensusMsgChan), len(lbft.broadcastChan), len(lbft.committedTxsChan), len(lbft.committedRequestBatchChan), len(lbft.lbftCoreCommittedChan))
 }
 
 func (lbft *Lbft) nullRequestTimerStart() {
