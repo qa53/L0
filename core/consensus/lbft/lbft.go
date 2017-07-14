@@ -370,7 +370,7 @@ func (lbft *Lbft) handleTransaction() {
 				lbft.handleRequestBatch(requestBath)
 			}
 			lbft.emptyBlockTimerStart = false
-			log.Debugf("Replica %s stop empty block", lbfdiffft.options.ID)
+			log.Debugf("Replica %s stop empty block", lbft.options.ID)
 		case <-lbft.blockTimer.C:
 			log.Debugf("Replica %s channel size (%d %d %d %d %d)", lbft.options.ID, len(lbft.recvConsensusMsgChan), len(lbft.broadcastChan), len(lbft.committedTxsChan), len(lbft.committedRequestBatchChan), len(lbft.lbftCoreCommittedChan))
 			lbft.maybeSendViewChange()
