@@ -213,6 +213,15 @@ func (lbft *Lbft) Start() {
 	}()
 	log.Debugf("Replica %s consenter started", lbft.options.ID)
 	lbft.resetBlockTimer()
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		for {
+			select {
+			case <-ticker.C:
+				log.Debugf("Replica %s channel size (%d %d %d %d %d)", lbft.options.ID, len(lbft.recvConsensusMsgChan), len(lbft.broadcastChan), len(lbft.committedTxsChan), len(lbft.committedRequestBatchChan), len(lbft.lbftCoreCommittedChan))
+			}
+		}
+	}()
 }
 
 //Stop Stop consenter serverice
@@ -372,7 +381,6 @@ func (lbft *Lbft) handleTransaction() {
 			lbft.emptyBlockTimerStart = false
 			log.Debugf("Replica %s stop empty block", lbft.options.ID)
 		case <-lbft.blockTimer.C:
-			log.Debugf("Replica %s channel size (%d %d %d %d %d)", lbft.options.ID, len(lbft.recvConsensusMsgChan), len(lbft.broadcastChan), len(lbft.committedTxsChan), len(lbft.committedRequestBatchChan), len(lbft.lbftCoreCommittedChan))
 			lbft.maybeSendViewChange()
 			lbft.submitRequestBatches()
 			lbft.resetBlockTimer()
