@@ -160,7 +160,7 @@ func (lbft *Lbft) updateLastSeqNo(seqNo uint64) {
 	if t := seqNo - lbft.lastSeqNum(); int64(t) > 0 {
 		atomic.AddUint64(&lbft.lastSeqNo, t)
 	}
-	log.Debugf("Replica %s updateLastSeqNo %d == %d, %s", seqNo, lbft.lastSeqNum(), time.Now().Format("2006-01-02 15:04:05.999999999"))
+	log.Debugf("Replica %s updateLastSeqNo %d == %d, %s", lbft.options.ID, seqNo, lbft.lastSeqNum(), time.Now().Format("2006-01-02 15:04:05.999999999"))
 }
 
 func (lbft *Lbft) lastSeqNum() uint64 {
@@ -721,7 +721,7 @@ func (lbft *Lbft) recvViewChange(vc *ViewChange) {
 	})
 
 	cnt := lbft.voteViewChange.Size()
-	log.Infof("Replica %s received view change message from %s for voter %s , vote size %d", lbft.options.ID, vc.ReplicaID, vc.PrimaryID, cnt)
+	log.Infof("Replica %s received view change message from %s for voter %s(%d) , vote size %d", lbft.options.ID, vc.ReplicaID, vc.PrimaryID, vc.H, cnt)
 	if cnt == 1 {
 		lbft.viewChangeTimer.Reset(lbft.options.ViewChange)
 	} else if cnt == lbft.intersectionQuorum() {
