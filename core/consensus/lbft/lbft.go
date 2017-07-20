@@ -159,8 +159,8 @@ func (lbft *Lbft) updateExecSeqNo(seqNo uint64) {
 func (lbft *Lbft) updateLastSeqNo(seqNo uint64) {
 	if t := seqNo - lbft.lastSeqNum(); int64(t) > 0 {
 		atomic.AddUint64(&lbft.lastSeqNo, t)
+		log.Debugf("Replica %s updateLastSeqNo %d == %d, %s", lbft.options.ID, seqNo, lbft.lastSeqNum(), time.Now().Format("2006-01-02 15:04:05.999999999"))
 	}
-	log.Debugf("Replica %s updateLastSeqNo %d == %d, %s", lbft.options.ID, seqNo, lbft.lastSeqNum(), time.Now().Format("2006-01-02 15:04:05.999999999"))
 }
 
 func (lbft *Lbft) lastSeqNum() uint64 {
