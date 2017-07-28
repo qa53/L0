@@ -1,18 +1,18 @@
 // Copyright (C) 2017, Beijing Bochen Technology Co.,Ltd.  All rights reserved.
 //
 // This file is part of L0
-// 
+//
 // The L0 is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-// 
+//
 // The L0 is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// 
+//
 // GNU General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -32,6 +32,12 @@ type Msg struct {
 	Cmd      uint8
 	Payload  []byte
 	CheckSum [4]byte
+}
+
+// SecMsg on network
+type SecMsg struct {
+	Cert  []byte
+	Nonce uint32
 }
 
 const (
@@ -128,4 +134,79 @@ func NewMsg(msgType uint8, payload []byte) *Msg {
 // SendMessage sends message to other node
 func SendMessage(w io.Writer, msg *Msg) (int, error) {
 	return msg.write(w)
+}
+
+// NewSecMsg new sec message used by cert and nonce
+func NewSecMsg(cert []byte, nonce uint32) *SecMsg {
+	secMsg := &SecMsg{
+		Cert:  cert,
+		Nonce: nonce,
+	}
+	return secMsg
+}
+
+// Serialize serializes sec message to bytes
+func (m *SecMsg) Serialize() []byte {
+	return utils.Serialize(*m)
+}
+
+// Deserialize deserialize bytes to sec message
+func (m *SecMsg) Deserialize(data []byte) {
+	utils.Deserialize(data, m)
+}
+
+// Read decodes sec message from the reader
+func (m *SecMsg) read(r io.Reader) (int, error) {
+	l, err := utils.ReadVarInt(r)
+	if err != nil {
+		return 0, err
+	}
+
+	if l > maxMsgSize {
+		return 0, fmt.Errorf("message too big")
+	}
+
+	buf := make([]byte, l)
+	n, err := io.ReadFull(r, buf)
+
+	if n != int(l) {
+		return n, err
+	}
+	m.Deserialize(buf)
+	return n, err
+}
+
+// write encodes sec msg to the writer
+func (m *SecMsg) write(w io.Writer) (int, error) {
+	data := m.Serialize()
+	data = append(utils.VarInt(uint64(len(data))), data...)
+	return w.Write(data)
+}
+
+// SendSecMessage sends sec message to other node
+func SendSecMessage(w io.Writer, secMsg *SecMsg) (int, error) {
+	return secMsg.write(w)
+}
+
+// SendSignMessage sends sign to other node
+func SendSign(w io.Writer, sign []byte) (int, error) {
+	sign = append(utils.VarInt(uint64(len(sign))), sign...)
+	return w.Write(sign)
+}
+
+// RecvSign receives sign from other node
+func RecvSign(r io.Reader) ([]byte, int, error) {
+	l, err := utils.ReadVarInt(r)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if l > maxMsgSize {
+		return nil, 0, fmt.Errorf("message too big")
+	}
+
+	buf := make([]byte, l)
+	n, err := io.ReadFull(r, buf)
+
+	return buf, n, err
 }

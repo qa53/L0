@@ -155,7 +155,7 @@ func TCPSend(srvAddress []string) {
 		if err != nil || c == nil {
 			panic(err)
 		}
-		go listen(c)
+		//go listen(c)
 		fmt.Println("LocalAddr:", c.LocalAddr().String(), " RemoteAddr:", c.RemoteAddr().String())
 		conn = append(conn, c)
 	}
