@@ -62,7 +62,7 @@ type Blockchain struct {
 
 	orphans *list.List
 	// 0 respresents sync block, 1 respresents sync done
-	synced uint32
+	synced bool
 }
 
 // load loads local blockchain data
@@ -99,6 +99,7 @@ func NewBlockchain(ledger *ledger.Ledger) *Blockchain {
 		blkCh:              make(chan *types.Block, 10),
 		currentBlockHeader: new(types.BlockHeader),
 	}
+	bc.load()
 	return bc
 }
 
@@ -154,34 +155,42 @@ func (bc *Blockchain) GetTransaction(txHash crypto.Hash) (*types.Transaction, er
 }
 
 // Start starts blockchain services
-func (bc *Blockchain) Start() {
+func (bc *Blockchain) Start(synced bool) {
 	// bc.wg.Add(1)
-	bc.load()
 	// start consesnus
 	bc.StartConsensusService()
-	// start txpool
-	bc.StartTxPool()
+	bc.synced = synced
+	if !bc.synced {
+		// start txpool
+		bc.StartTxPool()
+	}
 	log.Debug("BlockChain Service start")
 	// bc.wg.Wait()
 
 }
 
+func (bc *Blockchain) Synced() bool {
+	return bc.synced
+}
+
 // StartConsensusService starts consensus service
 func (bc *Blockchain) StartConsensusService() {
 	go func() {
-		var connected bool
 		first := true
 		for {
 			select {
 			case commitedTxs := <-bc.consenter.CommittedTxsChannel():
-				if connected {
+				if bc.synced {
 					bc.processConsensusOutput(commitedTxs)
 				} else {
 					height, _ := bc.ledger.Height()
 					height++
 					if commitedTxs.Height == height {
 						bc.processConsensusOutput(commitedTxs)
-						connected = true
+						if !bc.synced {
+							bc.synced = true
+							bc.StartTxPool()
+						}
 					} else if commitedTxs.Height > height {
 						//orphan
 						for elem := bc.orphans.Front(); elem != nil; elem = elem.Next() {
@@ -197,6 +206,9 @@ func (bc *Blockchain) StartConsensusService() {
 							}
 						}
 						if !first {
+							if bc.orphans.Len() > 100 {
+								bc.orphans.Remove(bc.orphans.Front())
+							}
 							bc.orphans.PushBack(commitedTxs)
 							first = false
 						}

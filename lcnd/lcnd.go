@@ -115,7 +115,7 @@ func (l *Lcnd) Start() {
 	}
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	l.bc.Start()
+	l.bc.Start(true)
 	l.protocolManager.Start()
 
 	// TODO: every service start here, and make waitgroup usefull
