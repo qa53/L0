@@ -38,12 +38,12 @@ import (
 )
 
 type validatorAccount struct {
-	orphans *list.List
-	txsList *list.List
-	txsMap  map[crypto.Hash]*list.Element
-	currTx  *types.Transaction
-	amount  *big.Int
-	nonce   uint32
+	orphans    *list.List
+	txsList    *list.List
+	txsMap     map[crypto.Hash]*list.Element
+	currTxHash crypto.Hash
+	amount     *big.Int
+	nonce      uint32
 	sync.RWMutex
 }
 
@@ -213,20 +213,14 @@ func (va *validatorAccount) iterTransaction(function func(tx *types.Transaction)
 	va.Lock()
 	defer va.Unlock()
 
-	var currTxElem *list.Element
-	if va.currTx == nil {
+	currTxElem, ok := va.txsMap[va.currTxHash]
+	if !ok {
 		currTxElem = va.txsList.Front()
 	} else {
-		var ok bool
-		currTxElem, ok = va.txsMap[va.currTx.Hash()]
-		if !ok {
-			currTxElem = va.txsList.Front()
-		} else {
-			currTxElem = currTxElem.Next()
-		}
+		currTxElem = currTxElem.Next()
 	}
 
-	if va.currTx == nil && currTxElem == nil {
+	if currTxElem == nil {
 		log.Debugf("[Validator] va.currTx is Null")
 		return
 	}
@@ -235,10 +229,10 @@ func (va *validatorAccount) iterTransaction(function func(tx *types.Transaction)
 	//log.Debugf("[Validator] currTxElem_hash: %s, currTx_hash: %s", currTxElem.Value.(*types.Transaction).Hash().String(), va.currTx.Hash().String())
 	for elem := currTxElem; elem != nil; elem = elem.Next() {
 		if !function(elem.Value.(*types.Transaction)) {
-			log.Debugf("[Validator] currTx_hash: %s", va.currTx.Hash().String())
+			log.Debugf("[Validator] currTx_hash: %s", va.currTxHash)
 			break
 		}
-		va.currTx = elem.Value.(*types.Transaction)
+		va.currTxHash = elem.Value.(*types.Transaction).Hash()
 	}
 }
 
