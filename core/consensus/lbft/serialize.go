@@ -86,7 +86,8 @@ func (msg *ViewChange) Serialize() []byte {
 	deserialize(payload, m)
 	m.ReplicaID = ""
 	m.Priority = 0
-	m.H = 0
+	m.SeqNo = 0
+	m.Height = 0
 	return serialize(m)
 }
 

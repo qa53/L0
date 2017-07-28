@@ -19,8 +19,9 @@
 package blockchain
 
 import (
-	"github.com/bocheninc/L0/core/types"
 	"github.com/bocheninc/L0/components/log"
+	"github.com/bocheninc/L0/core/consensus"
+	"github.com/bocheninc/L0/core/types"
 )
 
 // var TxBufferPool = sync.Pool{
@@ -44,6 +45,9 @@ func (bc *Blockchain) FetchGroupingTxsInTxPool(groupingNum, maxSizeInGrouping in
 	return groupingTxs
 }
 
-func (bc *Blockchain) GetLastSeqNo() uint64 {
-	return 0
+func (bc *Blockchain) GetBlockchainInfo() *consensus.BlockchainInfo {
+	height, _ := bc.ledger.Height()
+	return &consensus.BlockchainInfo{
+		Height: height,
+	}
 }

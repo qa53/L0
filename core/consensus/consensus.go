@@ -38,12 +38,14 @@ type CommittedTxs struct {
 // OutputTxs Consensus output object
 type OutputTxs struct {
 	Outputs []*CommittedTxs
+	Height  uint32
 }
 
 // Consenter Interface for plugin consenser
 type Consenter interface {
 	Start()
 	Stop()
+	Quorum() int
 	RecvConsensus([]byte)
 	BroadcastConsensusChannel() <-chan *BroadcastConsensus
 	CommittedTxsChannel() <-chan *OutputTxs
@@ -54,9 +56,15 @@ type ITxPool interface {
 	FetchGroupingTxsInTxPool(groupingNum, maxSizeInGrouping int) []types.Transactions
 }
 
+// BlockchainInfo information of block chain
+type BlockchainInfo struct {
+	LastSeqNo uint64
+	Height    uint32
+}
+
 // IStack Interface for other function for plugin consenser
 type IStack interface {
 	VerifyTxsInConsensus(txs []*types.Transaction, primary bool) bool
-	GetLastSeqNo() uint64
+	GetBlockchainInfo() *BlockchainInfo
 	ITxPool
 }

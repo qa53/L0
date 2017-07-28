@@ -67,6 +67,7 @@ type RequestBatch struct {
 	Requests []*Request
 	ID       int64
 	Index    uint32
+	Height   uint32
 }
 
 //fromChain from
@@ -173,7 +174,8 @@ type ViewChange struct {
 	Chain     string `protobuf:"bytes,2,opt,name=chain" json:"chain,omitempty"`
 	Priority  int64  `protobuf:"varint,3,opt,name=priority" json:"priority,omitempty"`
 	PrimaryID string `protobuf:"bytes,4,opt,name=primaryID" json:"primaryID,omitempty"`
-	H         uint64 `protobuf:"varint,5,opt,name=h" json:"h,omitempty"`
+	SeqNo     uint64 `protobuf:"varint,5,opt,name=seqNo" json:"seqNo,omitempty"`
+	Height    uint32 `protobuf:"varint,6,opt,name=height" json:"height,omitempty"`
 }
 
 //NullRequest Define struct
@@ -181,7 +183,8 @@ type NullRequest struct {
 	ReplicaID string `protobuf:"bytes,1,opt,name=replicaID" json:"replicaID,omitempty"`
 	Chain     string `protobuf:"bytes,2,opt,name=chain" json:"chain,omitempty"`
 	PrimaryID string `protobuf:"bytes,3,opt,name=primaryID" json:"primaryID,omitempty"`
-	H         uint64 `protobuf:"varint,4,opt,name=h" json:"h,omitempty"`
+	SeqNo     uint64 `protobuf:"varint,5,opt,name=seqNo" json:"seqNo,omitempty"`
+	Height    uint32 `protobuf:"varint,6,opt,name=height" json:"height,omitempty"`
 }
 
 //MessageType

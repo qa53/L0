@@ -40,7 +40,8 @@ func NewNoops(options *Options, stack consensus.IStack) *Noops {
 	noops.broadcastChan = make(chan *consensus.BroadcastConsensus, noops.options.BroadcastChanSize)
 	noops.blockTimer = time.NewTimer(noops.options.BlockInterval)
 	noops.blockTimer.Stop()
-	noops.seqNo = noops.stack.GetLastSeqNo()
+	noops.seqNo = noops.stack.GetBlockchainInfo().LastSeqNo
+	noops.height = noops.stack.GetBlockchainInfo().Height
 	return noops
 }
 
@@ -52,6 +53,7 @@ type Noops struct {
 	broadcastChan    chan *consensus.BroadcastConsensus
 	blockTimer       *time.Timer
 	seqNo            uint64
+	height           uint32
 	exit             chan struct{}
 }
 
@@ -99,7 +101,8 @@ func (noops *Noops) processBlock() {
 	log.Infof("Noops write block (%d transactions)  %d", len(txs), noops.seqNo)
 	outputs := []*consensus.CommittedTxs{}
 	outputs = append(outputs, &consensus.CommittedTxs{Skip: false, Time: uint32(time.Now().Unix()), Transactions: txs, SeqNo: noops.seqNo})
-	noops.committedTxsChan <- &consensus.OutputTxs{Outputs: outputs}
+	noops.height++
+	noops.committedTxsChan <- &consensus.OutputTxs{Outputs: outputs, Height: noops.height}
 
 	noops.blockTimer = time.NewTimer(noops.options.BlockInterval)
 }
@@ -109,6 +112,11 @@ func (noops *Noops) Stop() {
 	if noops.IsRunning() {
 		close(noops.exit)
 	}
+}
+
+// Quorum num of quorum
+func (noops *Noops) Quorum() int {
+	return 1
 }
 
 // RecvConsensus Receive consensus data

@@ -19,6 +19,7 @@
 package blockchain
 
 import (
+	"container/list"
 	"sync"
 
 	"math/big"
@@ -59,6 +60,7 @@ type Blockchain struct {
 	txCh   chan *types.Transaction
 	blkCh  chan *types.Block
 
+	orphans *list.List
 	// 0 respresents sync block, 1 respresents sync done
 	synced uint32
 }
@@ -96,16 +98,6 @@ func NewBlockchain(ledger *ledger.Ledger) *Blockchain {
 		txCh:               make(chan *types.Transaction, 10000),
 		blkCh:              make(chan *types.Block, 10),
 		currentBlockHeader: new(types.BlockHeader),
-	}
-
-	bc.txValidator = NewValidator(bc.ledger)
-
-	bc.ledger.Validator = bc.txValidator
-
-	if params.Validator {
-		bc.txValidator.startValidator()
-	} else {
-		bc.txValidator.stopValidator()
 	}
 	return bc
 }
@@ -165,7 +157,10 @@ func (bc *Blockchain) GetTransaction(txHash crypto.Hash) (*types.Transaction, er
 func (bc *Blockchain) Start() {
 	// bc.wg.Add(1)
 	bc.load()
+	// start consesnus
 	bc.StartConsensusService()
+	// start txpool
+	bc.StartTxPool()
 	log.Debug("BlockChain Service start")
 	// bc.wg.Wait()
 
@@ -174,19 +169,64 @@ func (bc *Blockchain) Start() {
 // StartConsensusService starts consensus service
 func (bc *Blockchain) StartConsensusService() {
 	go func() {
+		var connected bool
+		first := true
 		for {
 			select {
 			case commitedTxs := <-bc.consenter.CommittedTxsChannel():
-
-				txs, time := bc.txValidator.GetCommittedTxs(commitedTxs.Outputs)
-				if txs != nil && len(txs) > 0 {
-					blk := bc.GenerateBlock(txs, time)
-					// bc.pm.Relay(blk)
-					bc.ProcessBlock(blk)
+				if connected {
+					bc.processConsensusOutput(commitedTxs)
+				} else {
+					height, _ := bc.ledger.Height()
+					height++
+					if commitedTxs.Height == height {
+						bc.processConsensusOutput(commitedTxs)
+						connected = true
+					} else if commitedTxs.Height > height {
+						//orphan
+						for elem := bc.orphans.Front(); elem != nil; elem = elem.Next() {
+							ocommitedTxs := elem.Value.(*consensus.OutputTxs)
+							if ocommitedTxs.Height < height {
+								bc.orphans.Remove(elem)
+							} else if ocommitedTxs.Height == height {
+								bc.orphans.Remove(elem)
+								bc.processConsensusOutput(ocommitedTxs)
+								height++
+							} else {
+								break
+							}
+						}
+						if !first {
+							bc.orphans.PushBack(commitedTxs)
+							first = false
+						}
+					} else {
+						log.Panicf("Height %d already exist in ledger", commitedTxs.Height)
+					}
 				}
 			}
 		}
 	}()
+}
+
+func (bc *Blockchain) processConsensusOutput(output *consensus.OutputTxs) {
+	txs, time := bc.txValidator.GetCommittedTxs(output.Outputs)
+	//if txs != nil && len(txs) > 0 {
+	blk := bc.GenerateBlock(txs, time)
+	// bc.pm.Relay(blk)
+	bc.ProcessBlock(blk)
+	//}
+}
+
+// StartTxPool starts txpool service
+func (bc *Blockchain) StartTxPool() {
+	bc.txValidator = NewValidator(bc.ledger)
+	bc.ledger.Validator = bc.txValidator
+	if params.Validator {
+		bc.txValidator.startValidator()
+	} else {
+		bc.txValidator.stopValidator()
+	}
 }
 
 // ProcessTransaction processes new transaction from the network

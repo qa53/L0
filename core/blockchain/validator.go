@@ -38,6 +38,7 @@ import (
 )
 
 type validatorAccount struct {
+	orphans *list.List
 	txsList *list.List
 	txsMap  map[crypto.Hash]*list.Element
 	currTx  *types.Transaction
@@ -56,6 +57,7 @@ type Validator struct {
 func newValidatorAccount(address accounts.Address, leger *ledger.Ledger) *validatorAccount {
 	amount, nonce, _ := leger.GetBalance(address)
 	return &validatorAccount{
+		orphans: list.New(),
 		txsList: list.New(),
 		txsMap:  make(map[crypto.Hash]*list.Element),
 		amount:  amount,
@@ -106,9 +108,34 @@ func (va *validatorAccount) addTransaction(tx *types.Transaction) bool {
 		return true
 	}
 
+	if tx.Nonce() > va.nonce {
+		if va.orphans.Len() > 100000 {
+			va.orphans.Remove(va.orphans.Front())
+		}
+		va.orphans.PushBack(tx)
+	}
+
 	log.Debugf("[Validator] can't add: new tx, tx_hash: %v, tx_sender: %v, tx_type: %v, tx_amount: %v, tx_nonce: %v, va.amount: %v, va.nonce: %v",
 		tx.Hash().String(), tx.Sender().String(), tx.GetType(), tx.Amount(), tx.Nonce(), va.amount, va.nonce)
 	return false
+}
+
+func (va *validatorAccount) processOrphan() types.Transactions {
+	nonce := va.nonce
+	var txs types.Transactions
+	for elem := va.orphans.Front(); elem != nil; elem = elem.Next() {
+		tx := elem.Value.(*types.Transaction)
+		if tx.Nonce() < nonce {
+			va.orphans.Remove(elem)
+		} else if tx.Nonce() == nonce {
+			txs = append(txs, tx)
+			va.orphans.Remove(elem)
+			nonce++
+		} else {
+			break
+		}
+	}
+	return txs
 }
 
 func (va *validatorAccount) hasTransaction(tx *types.Transaction) bool {
@@ -208,7 +235,7 @@ func (va *validatorAccount) iterTransaction(function func(tx *types.Transaction)
 	//log.Debugf("[Validator] currTxElem_hash: %s, currTx_hash: %s", currTxElem.Value.(*types.Transaction).Hash().String(), va.currTx.Hash().String())
 	for elem := currTxElem; elem != nil; elem = elem.Next() {
 		if !function(elem.Value.(*types.Transaction)) {
-			//log.Debugf("[Validator] currTx_hash: %s", va.currTx.Hash().String())
+			log.Debugf("[Validator] currTx_hash: %s", va.currTx.Hash().String())
 			break
 		}
 		va.currTx = elem.Value.(*types.Transaction)
@@ -462,6 +489,11 @@ func (vr *Validator) committedTransaction(txs types.Transactions) {
 			if receiverAccount != nil {
 				receiverAccount.updateTransactionReceiverBalance(tx)
 			}
+		}
+		otxs := senderAccount.processOrphan()
+		log.Debugf("[Validator] orphans left total: %d, remove: %d", senderAccount.orphans.Len(), len(otxs))
+		for _, otx := range otxs {
+			senderAccount.addTransaction(otx)
 		}
 	}
 }

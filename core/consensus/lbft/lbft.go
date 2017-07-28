@@ -78,6 +78,8 @@ func NewLbft(options *Options, stack consensus.IStack) *Lbft {
 		lbft.options.Q = q
 	}
 
+	lbft.lastHeight = lbft.stack.GetBlockchainInfo().Height
+	lbft.lastSeqNo = lbft.stack.GetBlockchainInfo().LastSeqNo
 	lbft.blockTimer = time.NewTimer(lbft.options.BlockInterval)
 	lbft.blockTimer.Stop()
 	lbft.emptyBlockTimer = time.NewTimer(lbft.options.BlockInterval)
@@ -98,6 +100,8 @@ type Lbft struct {
 	priority        int64
 	lastPrimaryID   string
 	primaryID       string
+	lastHeight      uint32
+	height          uint32
 	execSeqNo       uint64
 	lastSeqNo       uint64
 	seqNo           uint64
@@ -154,6 +158,24 @@ func (lbft *Lbft) updateExecSeqNo(seqNo uint64) {
 	if lbft.execSeqNo == 0 {
 		lbft.execSeqNo = seqNo
 	}
+}
+
+func (lbft *Lbft) updateLastHeightNum(h uint32) {
+	if t := h - lbft.lastHeightNum(); t > 0 {
+		atomic.AddUint32(&lbft.lastHeight, t)
+	}
+}
+
+func (lbft *Lbft) lastHeightNum() uint32 {
+	return atomic.AddUint32(&lbft.lastHeight, 0)
+}
+
+func (lbft *Lbft) heightNum() uint32 {
+	return atomic.AddUint32(&lbft.height, 0)
+}
+
+func (lbft *Lbft) incrHeightNum() uint32 {
+	return atomic.AddUint32(&lbft.height, 1)
 }
 
 func (lbft *Lbft) updateLastSeqNo(seqNo uint64) {
@@ -236,6 +258,11 @@ func (lbft *Lbft) Stop() {
 	log.Debugf("Replica %s consenter stopped", lbft.options.ID)
 }
 
+// Quorum num of quorum
+func (lbft *Lbft) Quorum() int {
+	return lbft.options.Q
+}
+
 //RecvConsensus Receive consensus data for consenter
 func (lbft *Lbft) RecvConsensus(payload []byte) {
 	msg := &Message{}
@@ -269,8 +296,7 @@ func (lbft *Lbft) intersectionQuorum() int {
 }
 
 func (lbft *Lbft) handleCommittedRequestBatch() {
-	var id int64 = EMPTYBLOCK
-	var has bool
+	var height uint32
 	for {
 		select {
 		case <-lbft.exit:
@@ -278,37 +304,18 @@ func (lbft *Lbft) handleCommittedRequestBatch() {
 		case committed := <-lbft.lbftCoreCommittedChan:
 			lbft.addCommittedReqeustBatch(committed.SeqNo, committed.RequestBatch)
 		case ctt := <-lbft.committedRequestBatchChan:
-			if ctt.requestBatch.ID == EMPTYBLOCK {
-				if id != EMPTYBLOCK || has {
+			if ctt.requestBatch.ID == EMPTYBLOCK || ctt.requestBatch.fromChain() == lbft.options.Chain { //发送方
+				if height == 0 || height == ctt.requestBatch.Height {
 					lbft.committedBlock = append(lbft.committedBlock, ctt)
-					lbft.writeBlock()
-					id = EMPTYBLOCK
-					has = false
-					lbft.committedBlock = nil
+					height = ctt.requestBatch.Height
 				} else {
-					lbft.committedBlock = append(lbft.committedBlock, ctt)
-				}
-			} else if ctt.requestBatch.fromChain() == lbft.options.Chain { //发送方
-				if id != EMPTYBLOCK && id != ctt.requestBatch.ID {
 					lbft.writeBlock()
 					lbft.committedBlock = nil
 					lbft.committedBlock = append(lbft.committedBlock, ctt)
-					id = ctt.requestBatch.ID
-				} else {
-					if has {
-						lbft.writeBlock()
-						lbft.committedBlock = nil
-						has = false
-						lbft.committedBlock = append(lbft.committedBlock, ctt)
-						id = ctt.requestBatch.ID
-					} else {
-						lbft.committedBlock = append(lbft.committedBlock, ctt)
-						id = ctt.requestBatch.ID
-					}
+					height = ctt.requestBatch.Height
 				}
 			} else { //接收方
 				lbft.committedBlock = append(lbft.committedBlock, ctt)
-				has = true
 			}
 		}
 	}
@@ -320,9 +327,11 @@ func (lbft *Lbft) writeBlock() {
 	}
 	cnt := 0
 	concurrentNumFrom := 0
+	height := uint32(0)
 	var seqNos []uint64
 	cts := []*consensus.CommittedTxs{}
 	for _, ctt := range lbft.committedBlock {
+		height = ctt.requestBatch.Height
 		seqNos = append(seqNos, ctt.seqNo)
 		txs := []*types.Transaction{}
 		for _, req := range ctt.requestBatch.Requests {
@@ -336,8 +345,8 @@ func (lbft *Lbft) writeBlock() {
 			cts = append(cts, &consensus.CommittedTxs{Skip: false, IsLocalChain: false, Time: ctt.requestBatch.Time, Transactions: txs, SeqNo: ctt.seqNo})
 		}
 	}
-	log.Infof("Replica %s write block %v (%d transactions) ", lbft.options.ID, seqNos, cnt)
-	lbft.committedTxsChan <- &consensus.OutputTxs{Outputs: cts}
+	log.Infof("Replica %s write block %v (%d transactions), height: %d", lbft.options.ID, seqNos, cnt, height)
+	lbft.committedTxsChan <- &consensus.OutputTxs{Outputs: cts, Height: height}
 	lbft.committedBlock = nil
 }
 
@@ -354,7 +363,7 @@ func (lbft *Lbft) handleTransaction() {
 			if lbft.votedCnt > lbft.options.K*lbft.options.N {
 				lbft.voteViewChange.IterVoter(func(voter string, ticket vote.ITicket) {
 					tvc := ticket.(*ViewChange)
-					log.Infof("Replica %s received view change message from %s for voter %s , lastSeqNo %d", lbft.options.ID, tvc.ReplicaID, tvc.PrimaryID, tvc.H)
+					log.Infof("Replica %s received view change message from %s for voter %s , lastSeqNo %d", lbft.options.ID, tvc.ReplicaID, tvc.PrimaryID, tvc.SeqNo)
 				})
 				log.Panicf("Replica %s failed to vote new Primary, diff lastSeqNo  %d", lbft.options.ID, lbft.lastSeqNum())
 			}
@@ -362,7 +371,7 @@ func (lbft *Lbft) handleTransaction() {
 			var vc *ViewChange
 			lbft.voteViewChange.IterVoter(func(voter string, ticket vote.ITicket) {
 				tvc := ticket.(*ViewChange)
-				if tvc.PrimaryID != lbft.lastPrimaryID && tvc.H == lbft.lastSeqNum() {
+				if tvc.PrimaryID != lbft.lastPrimaryID && tvc.SeqNo == lbft.lastSeqNum() && tvc.Height == lbft.lastHeightNum() {
 					if vc == nil {
 						vc = tvc
 					} else if tvc.Priority < vc.Priority {
@@ -382,7 +391,7 @@ func (lbft *Lbft) handleTransaction() {
 			lbft.nullRequestHandler()
 		case <-lbft.emptyBlockTimer.C:
 			if lbft.isPrimary() {
-				requestBath := &RequestBatch{Time: uint32(time.Now().Unix()), ID: EMPTYBLOCK}
+				requestBath := &RequestBatch{Time: uint32(time.Now().Unix()), ID: EMPTYBLOCK, Height: lbft.incrHeightNum()}
 				lbft.handleRequestBatch(requestBath)
 			}
 			lbft.emptyBlockTimerStart = false
@@ -403,9 +412,13 @@ func (lbft *Lbft) submitRequestBatches() {
 	txss := lbft.stack.FetchGroupingTxsInTxPool(lbft.options.MaxConcurrentNumFrom, lbft.options.BlockSize)
 
 	id := time.Now().UnixNano()
+	height := uint32(0)
 	requestBatchList := make([]*RequestBatch, 0, len(txss))
 	for index, txs := range txss {
 		if len(txs) > 0 {
+			if height == 0 {
+				height = lbft.incrHeightNum()
+			}
 			var nano uint32
 			reqs := make([]*Request, 0, len(txs))
 			for _, tx := range txs {
@@ -417,7 +430,7 @@ func (lbft *Lbft) submitRequestBatches() {
 					nano = req.Time()
 				}
 			}
-			requestBath := &RequestBatch{Time: nano, Requests: reqs, ID: id, Index: uint32(index)}
+			requestBath := &RequestBatch{Time: nano, Requests: reqs, ID: id, Index: uint32(index), Height: height}
 			log.Debugf("Replica %s generate requestBatch %s : timestamp %d, transations %d", lbft.options.ID, hash(requestBath), requestBath.Time, len(requestBath.Requests))
 			requestBatchList = append(requestBatchList, requestBath)
 		}
@@ -597,14 +610,7 @@ func (lbft *Lbft) handleConsensusMsg() {
 					log.Debugf("Replica %s received null request from %s", lbft.options.ID, np.ReplicaID)
 					if lbft.primaryID != np.PrimaryID && np.PrimaryID == np.ReplicaID {
 						log.Infof("Replica %s view change : vote new PrimaryID %s (%s), null request", lbft.options.ID, np.PrimaryID, lbft.primaryID)
-						// lbft.primaryID = np.PrimaryID
-						// lbft.lastSeqNo = np.H
-						// lbft.seqNo = np.H
-						// lbft.updateExecSeqNo(np.H)
-						// lbft.verifySeqNo = np.H
-						// lbft.prePrepareAsync = newAsyncSeqNo(np.H)
-						// lbft.commitAsync = newAsyncSeqNo(np.H)
-						lbft.newView(&ViewChange{PrimaryID: np.PrimaryID, H: np.H})
+						lbft.newView(&ViewChange{PrimaryID: np.PrimaryID, SeqNo: np.SeqNo, Height: np.Height})
 					}
 					lbft.nullRequestTimerStart()
 				}
@@ -625,7 +631,8 @@ func (lbft *Lbft) nullRequestHandler() {
 			ReplicaID: lbft.options.ID,
 			Chain:     lbft.options.Chain,
 			PrimaryID: lbft.primaryID,
-			H:         lbft.lastSeqNum(),
+			SeqNo:     lbft.lastSeqNum(),
+			Height:    lbft.lastHeightNum(),
 		}
 		lbft.broadcast(lbft.options.Chain, &Message{Type: MESSAGENULLREQUEST, Payload: serialize(nullRequest)})
 		lbft.nullRequestTimerStart()
@@ -658,19 +665,21 @@ func (lbft *Lbft) sendViewChange(vc *ViewChange) {
 		vc.Chain = lbft.options.Chain
 		vc.ReplicaID = lbft.options.ID
 		if vc.PrimaryID == lbft.options.ID {
-			vc.H = lbft.lastSeqNum()
+			vc.SeqNo = lbft.lastSeqNum()
+			vc.Height = lbft.lastHeightNum()
 		}
 	} else {
-		lbft.updateLastSeqNo(lbft.stack.GetLastSeqNo())
 		vc = &ViewChange{
 			Chain:     lbft.options.Chain,
 			ReplicaID: lbft.options.ID,
 			Priority:  lbft.priority,
 			PrimaryID: lbft.options.ID,
-			H:         lbft.lastSeqNum(),
+			SeqNo:     lbft.lastSeqNum(),
+			Height:    lbft.lastHeightNum(),
 		}
 	}
 	lbft.recvViewChange(vc)
+	log.Infof("Replica %s send view change message for voter %s(%d)", lbft.options.ID, vc.PrimaryID, vc.SeqNo)
 	lbft.broadcast(lbft.options.Chain, &Message{Type: MESSAGEVIEWCHANGE, Payload: serialize(vc)})
 }
 
@@ -689,16 +698,18 @@ func (lbft *Lbft) recvViewChange(vc *ViewChange) {
 	lbft.voteViewChange.IterVoter(func(voter string, ticket vote.ITicket) {
 		tvc := ticket.(*ViewChange)
 		if tvc.PrimaryID == vc.PrimaryID {
-			if tvc.H < vc.H {
-				tvc.H = vc.H
+			if tvc.SeqNo < vc.SeqNo {
+				tvc.SeqNo = vc.SeqNo
+				tvc.Height = vc.Height
 			} else {
-				vc.H = tvc.H
+				vc.SeqNo = tvc.SeqNo
+				vc.Height = tvc.Height
 			}
 		}
 	})
 
 	cnt := lbft.voteViewChange.Size()
-	log.Infof("Replica %s received view change message from %s for voter %s(%d) , vote size %d", lbft.options.ID, vc.ReplicaID, vc.PrimaryID, vc.H, cnt)
+	log.Infof("Replica %s received view change message from %s for voter %s(%d) , vote size %d", lbft.options.ID, vc.ReplicaID, vc.PrimaryID, vc.SeqNo, cnt)
 	if cnt == 1 {
 		lbft.viewChangeTimer.Reset(lbft.options.ViewChange)
 	} else if cnt == lbft.intersectionQuorum() {
@@ -735,12 +746,14 @@ func (lbft *Lbft) newView(vc *ViewChange) {
 		lbft.priority = time.Now().UnixNano()
 		lbft.blockTimer.Stop()
 	}
-	lbft.lastSeqNo = vc.H
-	lbft.seqNo = vc.H
+	lbft.lastHeight = vc.Height
+	lbft.height = vc.Height
+	lbft.lastSeqNo = vc.SeqNo
+	lbft.seqNo = vc.SeqNo
 	lbft.votedCnt = 0
 	log.Infof("Replica %s view change : vote new PrimaryID %s", lbft.options.ID, vc.PrimaryID)
-	lbft.verifySeqNo = vc.H
-	lbft.updateExecSeqNo(vc.H)
+	lbft.verifySeqNo = vc.SeqNo
+	lbft.updateExecSeqNo(vc.SeqNo)
 	lbft.iterInstance(func(key string, instance *lbftCore) {
 		//if !instance.isPassCommit {
 		delete(lbft.lbftCores, key)
@@ -749,8 +762,8 @@ func (lbft *Lbft) newView(vc *ViewChange) {
 		// 	log.Debugf("Replica %s alreay commmit for consensus %s, view change", lbft.options.ID, instance.name)
 		// }
 	})
-	lbft.prePrepareAsync = newAsyncSeqNo(vc.H)
-	lbft.commitAsync = newAsyncSeqNo(vc.H)
+	lbft.prePrepareAsync = newAsyncSeqNo(vc.SeqNo)
+	lbft.commitAsync = newAsyncSeqNo(vc.SeqNo)
 	lbft.resetViewChangePeriodTimer()
 	lbft.nullRequestTimerStart()
 	lbft.concurrentCntTo = 0
@@ -759,7 +772,7 @@ func (lbft *Lbft) newView(vc *ViewChange) {
 			committed := <-lbft.lbftCoreCommittedChan
 			lbft.addCommittedReqeustBatch(committed.SeqNo, committed.RequestBatch)
 		}
-		lbft.handleRequestBatch(&RequestBatch{Time: uint32(time.Now().Unix()), ID: EMPTYBLOCK})
+		lbft.handleRequestBatch(&RequestBatch{Time: uint32(time.Now().Unix()), ID: EMPTYBLOCK, Height: lbft.incrHeightNum()})
 		for len(lbft.committedTxsChan) > 0 {
 			time.Sleep(lbft.options.BlockTimeout)
 		}
@@ -807,6 +820,7 @@ func (lbft *Lbft) addCommittedReqeustBatch(seqNo uint64, requestBatch *RequestBa
 	}
 	log.Infof("Replica %s add committed requestBatch %d (%s)", lbft.options.ID, seqNo, hash(requestBatch))
 	lbft.committedRequestBatch[seqNo] = requestBatch
+	lbft.updateLastHeightNum(requestBatch.Height)
 	lbft.updateLastSeqNo(seqNo)
 	lbft.updateVerifySeqNo(seqNo)
 	lbft.checkpoint()
@@ -857,7 +871,7 @@ func (lbft *Lbft) checkpoint() {
 			}
 		} else if seqNo == checkpoint {
 			height := lbft.incrExecSeqNum()
-			log.Debugf("Replica %s write requestBatch %d (%s, %d transactions) ", lbft.options.ID, seqNo, hash(reqBatch), len(reqBatch.Requests))
+			log.Debugf("Replica %s write requestBatch %d (%s, %d transactions)", lbft.options.ID, seqNo, hash(reqBatch), len(reqBatch.Requests))
 			lbft.committedRequestBatchChan <- &committedRequestBatch{requestBatch: reqBatch, seqNo: height}
 			delete(lbft.committedRequestBatch, seqNo-uint64(lbft.options.K))
 			checkpoint = lbft.execSeqNum() + 1
