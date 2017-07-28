@@ -139,13 +139,17 @@ func (bc *Blockchain) GetNextBlockHash(h crypto.Hash) (crypto.Hash, error) {
 
 // GetBalanceNonce returns balance and nonce
 func (bc *Blockchain) GetBalanceNonce(addr accounts.Address) (*big.Int, uint32) {
+	if bc.txValidator == nil {
+		amount, nonce, _ := bc.ledger.GetBalance(addr)
+		return amount, nonce + 1
+	}
 	return bc.txValidator.getBalanceNonce(addr)
 }
 
 // GetTransaction returns transaction in ledger first then txBool
 func (bc *Blockchain) GetTransaction(txHash crypto.Hash) (*types.Transaction, error) {
 	tx, err := bc.ledger.GetTxByTxHash(txHash.Bytes())
-	if tx == nil {
+	if tx == nil && bc.txValidator != nil {
 		var ok bool
 		if tx, ok = bc.txValidator.getTransactionByHash(txHash); !ok {
 			return nil, err
@@ -160,7 +164,7 @@ func (bc *Blockchain) Start(synced bool) {
 	// start consesnus
 	bc.StartConsensusService()
 	bc.synced = synced
-	if !bc.synced {
+	if bc.synced {
 		// start txpool
 		bc.StartTxPool()
 	}
@@ -247,12 +251,16 @@ func (bc *Blockchain) ProcessTransaction(tx *types.Transaction) bool {
 	// step 2: add transaction to txPool
 	// if atomic.LoadUint32(&bc.synced) == 0 {
 	log.Debugf("[Blockchain] new tx, tx_hash: %v, tx_sender: %v, tx_nonce: %v", tx.Hash().String(), tx.Sender().String(), tx.Nonce())
+	if bc.txValidator == nil {
+		return true
+	}
 	if bc.txValidator.getValidatorSize() < validTxPoolSize {
 		if ok := bc.txValidator.PushTxInTxPool(tx); ok {
 			return true
 		}
 	} else {
 		log.Warnf("over max txs in txpool, %d", bc.txValidator.getValidatorSize())
+		return true
 	}
 	return false
 }
