@@ -63,9 +63,11 @@ func (m *Request) Nonce() uint32 {
 
 //RequestBatch Define struct
 type RequestBatch struct {
-	Time     uint32     `protobuf:"varint,1,opt,name=time" json:"time,omitempty"`
-	Requests []*Request `protobuf:"bytes,2,rep,name=requests" json:"requests,omitempty"`
-	ID       int64      `protobuf:"varint,3,opt,name=id" json:"id,omitempty"`
+	Time     uint32
+	Requests []*Request
+	ID       int64
+	Index    uint32
+	Height   uint32
 }
 
 //fromChain from
@@ -89,6 +91,9 @@ func (msg *RequestBatch) fromChain() (from string) {
 func (msg *RequestBatch) toChain() (to string) {
 	if len(msg.Requests) == 0 {
 		return
+	}
+	if msg.Index == 0 {
+		return msg.fromChain()
 	}
 	toChains := map[string]string{}
 	for _, req := range msg.Requests {
@@ -169,7 +174,8 @@ type ViewChange struct {
 	Chain     string `protobuf:"bytes,2,opt,name=chain" json:"chain,omitempty"`
 	Priority  int64  `protobuf:"varint,3,opt,name=priority" json:"priority,omitempty"`
 	PrimaryID string `protobuf:"bytes,4,opt,name=primaryID" json:"primaryID,omitempty"`
-	H         uint64 `protobuf:"varint,5,opt,name=h" json:"h,omitempty"`
+	SeqNo     uint64 `protobuf:"varint,5,opt,name=seqNo" json:"seqNo,omitempty"`
+	Height    uint32 `protobuf:"varint,6,opt,name=height" json:"height,omitempty"`
 }
 
 //NullRequest Define struct
@@ -177,7 +183,8 @@ type NullRequest struct {
 	ReplicaID string `protobuf:"bytes,1,opt,name=replicaID" json:"replicaID,omitempty"`
 	Chain     string `protobuf:"bytes,2,opt,name=chain" json:"chain,omitempty"`
 	PrimaryID string `protobuf:"bytes,3,opt,name=primaryID" json:"primaryID,omitempty"`
-	H         uint64 `protobuf:"varint,4,opt,name=h" json:"h,omitempty"`
+	SeqNo     uint64 `protobuf:"varint,5,opt,name=seqNo" json:"seqNo,omitempty"`
+	Height    uint32 `protobuf:"varint,6,opt,name=height" json:"height,omitempty"`
 }
 
 //MessageType
